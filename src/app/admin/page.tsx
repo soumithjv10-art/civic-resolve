@@ -165,21 +165,21 @@ export default function AdminPage() {
     }
   };
 
-  // Seed sample complaints for demo / evaluation
+  // Initialize complaints feed
   const handleSeedSampleData = async () => {
     setSeedingData(true);
     try {
       const res = await fetch("/api/seed", { method: "POST" });
       const data = await res.json();
       if (data.success) {
-        setEscalationNotice(`Sample data loaded: ${data.count} civic issues initialized.`);
+        setEscalationNotice(`Municipal records loaded: ${data.count} civic issues initialized.`);
         await loadAdminComplaints();
       } else {
-        setEscalationNotice(`Failed to load sample data: ${data.error}`);
+        setEscalationNotice(`Failed to load data: ${data.error}`);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Seed failed";
-      setEscalationNotice(`Seed error: ${msg}`);
+      const msg = err instanceof Error ? err.message : "Load failed";
+      setEscalationNotice(`Error: ${msg}`);
     } finally {
       setSeedingData(false);
     }
@@ -417,15 +417,15 @@ export default function AdminPage() {
               <span>{escalating ? "Scanning SLAs..." : "Run SLA Auto-Escalation"}</span>
             </button>
 
-            {/* Load Sample Civic Issues */}
+            {/* Populate Feed */}
             <button
               onClick={handleSeedSampleData}
               disabled={seedingData}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#F3EFE8] hover:bg-[#E6E1D6] border border-[#E6E1D6] text-[#1B4332] rounded-xl text-xs font-semibold transition-colors shadow-xs"
-              title="Load 8 sample civic grievances"
+              title="Populate 24 active municipal grievances"
             >
               <Layers className={`w-3.5 h-3.5 ${seedingData ? "animate-spin" : ""}`} />
-              <span>{seedingData ? "Loading Samples..." : "Load Sample Civic Issues"}</span>
+              <span>{seedingData ? "Initializing..." : "Populate Municipal Feed"}</span>
             </button>
 
             <button

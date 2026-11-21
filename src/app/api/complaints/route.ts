@@ -97,22 +97,32 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Auto-generate comprehensive description if not provided
+    let finalDescription = description?.trim() || "";
+    if (finalDescription.length < 5) {
+      finalDescription = `Automated Civic Triage: Citizen reported "${title}" at ${location}. Municipal field defect logged under ${userCategory || "infrastructure"}. Field inspection and dispatch queued.`;
+    }
+
     // Run AI Triage (Gemini 3.8 Flash with deterministic fallback)
     const aiAnalysis = await analyzeComplaintWithAI({
       title,
-      description,
+      description: finalDescription,
       location,
       userCategory,
       imageBase64,
       imageMimeType,
     });
 
+    if (aiAnalysis.aiSummary && (!description || description.trim().length < 5)) {
+      finalDescription = `${aiAnalysis.aiSummary} Issue reported: "${title}" at ${location}. Handled by ${aiAnalysis.department}.`;
+    }
+
     // Check for Potential Duplicate Incidents
     const existingComplaints = await getAllComplaints(100);
     const duplicateResult = detectPotentialDuplicate(
       {
         title,
-        description,
+        description: finalDescription,
         category: aiAnalysis.category,
         coordinates,
         location,
@@ -127,7 +137,7 @@ export async function POST(request: NextRequest) {
     const newComplaint: Complaint = {
       id: trackingId,
       title,
-      description,
+      description: finalDescription,
       location,
       coordinates,
       imageUrl: storedImageUrl,

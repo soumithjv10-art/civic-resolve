@@ -9,8 +9,10 @@ import { EmptyState } from "@/components/EmptyState";
 import { Complaint, ComplaintCategory, PriorityLevel, ComplaintStatus } from "@/lib/types";
 import { COMPLAINT_CATEGORIES, PRIORITY_LEVELS, DEPARTMENTS } from "@/lib/constants";
 import { Search, Filter, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 
 export default function HomePage() {
+  const { t } = useLanguage();
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,7 +127,7 @@ export default function HomePage() {
               <Search className="w-4 h-4 text-[#57534E] absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search complaints by keyword, street, or tracking ID..."
+                placeholder={t.searchPlaceholder}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 text-sm bg-[#FAF8F5] border border-[#E6E1D6] rounded-xl text-[#1C1917] placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#1B4332] focus:border-transparent transition-all"
@@ -148,7 +150,7 @@ export default function HomePage() {
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 className="px-3 py-2 text-xs font-medium bg-[#FAF8F5] border border-[#E6E1D6] rounded-xl text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#1B4332]"
               >
-                <option value="All">All Categories</option>
+                <option value="All">{t.allCategories}</option>
                 {COMPLAINT_CATEGORIES.map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
@@ -162,7 +164,7 @@ export default function HomePage() {
                 onChange={(e) => setSelectedPriority(e.target.value)}
                 className="px-3 py-2 text-xs font-medium bg-[#FAF8F5] border border-[#E6E1D6] rounded-xl text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#1B4332]"
               >
-                <option value="All">All Priorities</option>
+                <option value="All">{t.allPriorities}</option>
                 {PRIORITY_LEVELS.map((pri) => (
                   <option key={pri} value={pri}>
                     {pri} Priority
@@ -176,7 +178,7 @@ export default function HomePage() {
                 onChange={(e) => setSelectedStatus(e.target.value)}
                 className="px-3 py-2 text-xs font-medium bg-[#FAF8F5] border border-[#E6E1D6] rounded-xl text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#1B4332]"
               >
-                <option value="All">All Statuses</option>
+                <option value="All">{t.allStatuses}</option>
                 <option value="Reported">Reported</option>
                 <option value="In Progress">In Progress</option>
                 <option value="Awaiting Verification">Awaiting Verification</option>
@@ -221,7 +223,7 @@ export default function HomePage() {
                 onClick={resetFilters}
                 className="text-[#C85A32] hover:underline font-medium ml-auto"
               >
-                Reset All Filters
+                {t.resetFilters}
               </button>
             </div>
           )}
@@ -232,10 +234,10 @@ export default function HomePage() {
           <div className="flex justify-between items-center mb-6">
             <div>
               <h2 className="font-heading font-bold text-xl sm:text-2xl text-[#1C1917]">
-                Public Municipal Feed
+                {t.feedTitle}
               </h2>
               <p className="text-xs sm:text-sm text-[#57534E]">
-                Showing {filteredComplaints.length} active civic issues under public audit
+                {t.feedCountPrefix} {filteredComplaints.length} {t.feedCountSuffix}
               </p>
             </div>
           </div>
@@ -259,8 +261,8 @@ export default function HomePage() {
           ) : complaints.length === 0 ? (
             <EmptyState
               title="No civic complaints reported yet"
-              description="Be the first to report an infrastructure or public safety issue in your ward, or load sample civic issues to explore the platform."
-              actionText={seeding ? "Loading Sample Data..." : "Load Sample Civic Issues"}
+              description="Be the first to report an infrastructure or public safety issue in your ward, or initialize the municipal feed."
+              actionText={seeding ? "Initializing Feed..." : "Populate Municipal Feed"}
               onAction={handleSeedComplaints}
             />
           ) : filteredComplaints.length === 0 ? (

@@ -18,9 +18,9 @@ describe("Validation Schemas", () => {
     expect(res.success).toBe(true);
   });
 
-  it("fails if title is too short (< 5 chars)", () => {
+  it("fails if title is too short (< 3 chars)", () => {
     const invalidData = {
-      title: "Pipe",
+      title: "P",
       description: "Water is leaking heavily on the main road.",
       location: "Anna Salai",
     };
@@ -29,15 +29,14 @@ describe("Validation Schemas", () => {
     expect(res.success).toBe(false);
   });
 
-  it("fails if description is too short (< 10 chars)", () => {
-    const invalidData = {
-      title: "Huge pothole on road",
-      description: "Broken",
+  it("allows complaints without manual description since AI auto-generates it", () => {
+    const validData = {
+      title: "Huge road crater near bus stop",
       location: "Anna Salai",
     };
 
-    const res = CreateComplaintSchema.safeParse(invalidData);
-    expect(res.success).toBe(false);
+    const res = CreateComplaintSchema.safeParse(validData);
+    expect(res.success).toBe(true);
   });
 
   it("fails if location is too short (< 3 chars)", () => {

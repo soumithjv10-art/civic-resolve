@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { COMPLAINT_CATEGORIES } from "@/lib/constants";
 import { AIAnalysisReceipt, AIReceiptData } from "@/components/AIAnalysisReceipt";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { VoiceTranscribeResult } from "@/lib/types";
+import { useLanguage } from "@/context/LanguageContext";
 import {
   MapPin,
   Camera,
@@ -14,12 +15,11 @@ import {
   AlertCircle,
   CheckCircle2,
   Mic,
-  Languages,
+  ShieldCheck,
 } from "lucide-react";
 
 interface FormState {
   title: string;
-  description: string;
   location: string;
   userCategory: string;
   language: string;
@@ -28,12 +28,13 @@ interface FormState {
 }
 
 export default function ReportPage() {
+  const { language: currentLang, t } = useLanguage();
+
   const [form, setForm] = useState<FormState>({
     title: "",
-    description: "",
     location: "",
     userCategory: "",
-    language: "en",
+    language: currentLang || "en",
   });
 
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -52,36 +53,66 @@ export default function ReportPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [triageReceipt, setTriageReceipt] = useState<AIReceiptData | null>(null);
 
-  // Geolocation handler
+  // Auto-fetch location on component mount
+  useEffect(() => {
+    handleGetLocation();
+  }, []);
+
+  // Sync language selection
+  useEffect(() => {
+    setForm((prev) => ({ ...prev, language: currentLang }));
+  }, [currentLang]);
+
+  // Geolocation & Auto Reverse Geocoding
   const handleGetLocation = () => {
-    if (!navigator.geolocation) {
+    if (typeof window === "undefined" || !navigator.geolocation) {
       setGeoStatus("Geolocation is not supported by your browser.");
       return;
     }
 
     setGeoLoading(true);
-    setGeoStatus("Accessing GPS satellite coordinates...");
+    setGeoStatus(t.detectingLocation);
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         const coords = {
           lat: parseFloat(pos.coords.latitude.toFixed(6)),
           lng: parseFloat(pos.coords.longitude.toFixed(6)),
         };
+
+        let locationName = `GPS: ${coords.lat}, ${coords.lng}`;
+
+        try {
+          // Reverse geocode with OpenStreetMap Nominatim
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.lat}&lon=${coords.lng}&zoom=18&addressdetails=1`,
+            { headers: { "Accept-Language": "en" } }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (data.display_name) {
+              const parts = data.display_name.split(", ");
+              locationName = parts.slice(0, 4).join(", ");
+            }
+          }
+        } catch {
+          // Fall back to coordinate string
+        }
+
         setForm((prev) => ({
           ...prev,
           coordinates: coords,
-          location: prev.location || `GPS: ${coords.lat}, ${coords.lng}`,
+          location: prev.location && !prev.location.startsWith("GPS:") ? prev.location : locationName,
         }));
         setGeoLoading(false);
-        setGeoStatus(`GPS pinpointed (Lat: ${coords.lat}, Lng: ${coords.lng})`);
+        setGeoStatus(`${t.locationDetected} (${coords.lat}, ${coords.lng})`);
       },
       (err) => {
         setGeoLoading(false);
-        setGeoStatus("Location permission denied. Please enter address manually.");
-        console.warn("Geolocation error:", err.message);
+        setGeoStatus(null);
+        console.warn("Geolocation skipped or denied:", err.message);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 8000 }
     );
   };
 
@@ -90,9 +121,6 @@ export default function ReportPage() {
     setForm((prev) => ({
       ...prev,
       title: draft.title || prev.title,
-      description: draft.translatedText
-        ? `${draft.translatedText}\n\n[Original Transcript]: ${draft.originalText}`
-        : draft.description || prev.description,
       userCategory: draft.category || prev.userCategory,
       language: draft.detectedLanguage === "ta" ? "ta" : "en",
       originalLanguageText: draft.detectedLanguage === "ta" ? draft.originalText : undefined,
@@ -100,8 +128,8 @@ export default function ReportPage() {
 
     setVoiceDraftNotice(
       draft.detectedLanguage === "ta"
-        ? "தமிழ் குரல் பதிவு வெற்றிகரமாக பெறப்பட்டு ஆங்கிலத்தில் மொழிபெயர்க்கப்பட்டுள்ளது (Tamil voice input processed & translated)."
-        : "Voice input successfully structured into the complaint form."
+        ? "தமிழ் குரல் பதிவு பெறப்பட்டு தலைப்பு தானாக நிரப்பப்பட்டது (Tamil voice recorded)."
+        : "Voice input recorded and filled into the grievance form."
     );
     setShowVoiceRecorder(false);
   };
@@ -119,7 +147,7 @@ export default function ReportPage() {
 
     const maxSize = 5 * 1024 * 1024; // 5MB
     if (file.size > maxSize) {
-      setFormError(`File size (${(file.size / (1024 * 1024)).toFixed(2)} MB) exceeds 5 MB limit.`);
+      setFormError(`File size exceeds 5 MB limit.`);
       return;
     }
 
@@ -131,7 +159,6 @@ export default function ReportPage() {
     reader.onload = () => {
       const result = reader.result as string;
       setImagePreview(result);
-      // Strip data:image/...;base64,
       const base64Data = result.split(",")[1];
       setImageBase64(base64Data);
     };
@@ -145,36 +172,29 @@ export default function ReportPage() {
     setImageMimeType(null);
   };
 
-  // Form submit handler
+  // Form submit handler - Description is generated automatically by AI!
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
-    if (form.title.trim().length < 5) {
-      setFormError("Please enter a descriptive title (at least 5 characters).");
+    if (form.title.trim().length < 3) {
+      setFormError("Please enter a clear defect title (at least 3 characters).");
       return;
     }
-    if (form.description.trim().length < 10) {
-      setFormError("Please provide more problem details (at least 10 characters).");
-      return;
-    }
-    if (form.location.trim().length < 3) {
-      setFormError("Please provide the approximate location or street name.");
+    if (form.location.trim().length < 2) {
+      setFormError("Please provide the approximate location or allow GPS detection.");
       return;
     }
 
     setSubmitting(true);
-    setSubmitStage("Validating complaint & uploading photographic evidence...");
+    setSubmitStage(t.submittingText);
 
     try {
-      setSubmitStage("Running Gemini 3.8 Flash municipal triage & duplicate analysis...");
-
       const res = await fetch("/api/complaints", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: form.title.trim(),
-          description: form.description.trim(),
           location: form.location.trim(),
           coordinates: form.coordinates,
           userCategory: form.userCategory || undefined,
@@ -190,10 +210,9 @@ export default function ReportPage() {
         throw new Error(data.error || "Failed to submit grievance.");
       }
 
-      setSubmitStage("Generating official municipal receipt...");
       setTriageReceipt(data.triageReceipt as AIReceiptData);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "An unexpected error occurred during submission.";
+      const msg = err instanceof Error ? err.message : "An unexpected error occurred.";
       setFormError(msg);
     } finally {
       setSubmitting(false);
@@ -203,20 +222,20 @@ export default function ReportPage() {
   const resetForm = () => {
     setForm({
       title: "",
-      description: "",
       location: "",
       userCategory: "",
-      language: "en",
+      language: currentLang || "en",
     });
     removeImage();
     setGeoStatus(null);
     setVoiceDraftNotice(null);
     setTriageReceipt(null);
+    handleGetLocation();
   };
 
   return (
-    <div className="min-h-screen py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto">
+    <div className="min-h-screen py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-2xl mx-auto">
         {/* Render AI Triage Receipt upon successful submission */}
         {triageReceipt ? (
           <div className="space-y-6">
@@ -225,43 +244,53 @@ export default function ReportPage() {
         ) : (
           <div className="bg-[#FFFFFF] border border-[#E6E1D6] rounded-2xl p-6 sm:p-10 shadow-warm">
             {/* Header */}
-            <div className="mb-8 pb-6 border-b border-[#E6E1D6] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F3EFE8] text-xs font-semibold text-[#1B4332] mb-3">
-                  <Sparkles className="w-3.5 h-3.5 text-[#C85A32]" />
-                  <span>AI Municipal Intake</span>
-                </div>
-                <h1 className="font-heading font-extrabold text-2xl sm:text-3xl text-[#1C1917] tracking-tight">
-                  Report a Civic Grievance
-                </h1>
-                <p className="text-sm text-[#57534E] mt-1.5 leading-relaxed">
-                  Submit problems directly to municipal authorities. Our Gemini 3.8 Flash engine analyzes severity, matches with active neighborhood work orders, and assigns binding resolution SLAs.
-                </p>
+            <div className="mb-6 pb-6 border-b border-[#E6E1D6]">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F3EFE8] text-xs font-semibold text-[#1B4332] mb-2.5">
+                <Sparkles className="w-3.5 h-3.5 text-[#C85A32]" />
+                <span>AI Municipal Intake</span>
               </div>
-
-              {/* Toggle Voice Recorder Button */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowVoiceRecorder(!showVoiceRecorder)}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#C85A32] bg-[#FDF2EC] hover:bg-[#FBE4D8] text-[#C85A32] font-semibold text-xs transition-colors shadow-sm shrink-0"
-                >
-                  <Mic className="w-4 h-4 text-[#C85A32]" />
-                  <span>{showVoiceRecorder ? "Hide Voice Option" : "Report by Voice (குரல் பதிவு)"}</span>
-                </button>
-              </div>
+              <h1 className="font-heading font-extrabold text-2xl sm:text-3xl text-[#1C1917] tracking-tight">
+                {t.reportHeaderTitle}
+              </h1>
+              <p className="text-xs sm:text-sm text-[#57534E] mt-1.5 leading-relaxed">
+                {t.reportHeaderSubtitle}
+              </p>
             </div>
 
-            {/* Voice Recorder Panel */}
+            {/* Voice Reporting Bar */}
+            <div className="mb-6 bg-[#F3EFE8] border border-[#E6E1D6] rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[#1B4332] text-white flex items-center justify-center shrink-0">
+                  <Mic className="w-4 h-4 text-[#C85A32]" />
+                </div>
+                <div>
+                  <span className="block text-xs font-bold text-[#1C1917]">
+                    {t.voiceReportBtn}
+                  </span>
+                  <span className="text-[11px] text-[#57534E]">
+                    Speak in Tamil or English to automatically draft your complaint
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowVoiceRecorder(!showVoiceRecorder)}
+                className="px-3.5 py-1.5 rounded-lg bg-white border border-[#E6E1D6] text-xs font-semibold text-[#1B4332] hover:bg-[#FAF8F5] transition-colors shadow-xs"
+              >
+                {showVoiceRecorder ? "Hide Voice Recorder" : "Open Mic"}
+              </button>
+            </div>
+
+            {/* Voice Recorder Dropdown Component */}
             {showVoiceRecorder && (
               <div className="mb-6">
                 <VoiceRecorder onDraftGenerated={handleVoiceDraft} />
               </div>
             )}
 
-            {/* Voice Draft Populated Notice */}
+            {/* Voice Draft Notice */}
             {voiceDraftNotice && (
-              <div className="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs p-3.5 rounded-xl flex items-center justify-between gap-2">
+              <div className="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs p-3.5 rounded-xl flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
                   <span>{voiceDraftNotice}</span>
@@ -281,36 +310,32 @@ export default function ReportPage() {
               <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3 text-sm text-red-800">
                 <AlertCircle className="w-5 h-5 text-red-700 shrink-0 mt-0.5" />
                 <div>
-                  <strong className="block font-semibold">Please correct the following:</strong>
+                  <strong className="block font-semibold">Please check:</strong>
                   <span>{formError}</span>
                 </div>
               </div>
             )}
 
             {/* Form */}
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
               {/* Complaint Title */}
               <div>
                 <label
                   htmlFor="title"
                   className="block text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-1.5"
                 >
-                  Complaint Title <span className="text-[#C85A32]">*</span>
+                  {t.complaintTitleLabel}
                 </label>
                 <input
                   id="title"
                   type="text"
                   required
-                  placeholder="e.g. Hazardous exposed 440V cable dangling near Anna Nagar school"
+                  placeholder={t.complaintTitlePlaceholder}
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   maxLength={150}
-                  className="w-full px-4 py-2.5 bg-[#FAF8F5] border border-[#E6E1D6] rounded-xl text-sm text-[#1C1917] placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#1B4332] focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 bg-[#FAF8F5] border border-[#E6E1D6] rounded-xl text-sm text-[#1C1917] placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#1B4332] focus:border-transparent transition-all"
                 />
-                <div className="flex justify-between items-center text-[11px] text-[#57534E] mt-1">
-                  <span>Summarize the defect clearly.</span>
-                  <span>{form.title.length}/150</span>
-                </div>
               </div>
 
               {/* Category (Optional) */}
@@ -319,7 +344,7 @@ export default function ReportPage() {
                   htmlFor="category"
                   className="block text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-1.5"
                 >
-                  Category <span className="text-stone-400 font-normal">(Optional - AI will auto-categorize)</span>
+                  {t.categoryLabel}
                 </label>
                 <select
                   id="category"
@@ -327,7 +352,7 @@ export default function ReportPage() {
                   onChange={(e) => setForm({ ...form, userCategory: e.target.value })}
                   className="w-full px-4 py-2.5 bg-[#FAF8F5] border border-[#E6E1D6] rounded-xl text-sm text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#1B4332] transition-all"
                 >
-                  <option value="">Let AI categorize automatically</option>
+                  <option value="">{t.categoryAuto}</option>
                   {COMPLAINT_CATEGORIES.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
@@ -336,14 +361,14 @@ export default function ReportPage() {
                 </select>
               </div>
 
-              {/* Location with Geolocation Button */}
+              {/* Location with Auto-Detect */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label
                     htmlFor="location"
                     className="block text-xs font-bold uppercase tracking-wider text-[#1C1917]"
                   >
-                    Location / Landmark <span className="text-[#C85A32]">*</span>
+                    {t.locationLabel}
                   </label>
                   <button
                     type="button"
@@ -356,7 +381,7 @@ export default function ReportPage() {
                     ) : (
                       <MapPin className="w-3.5 h-3.5 text-[#C85A32]" />
                     )}
-                    <span>{geoLoading ? "Locating..." : "Use My Location"}</span>
+                    <span>{geoLoading ? t.detectingLocation : t.useMyLocation}</span>
                   </button>
                 </div>
 
@@ -364,48 +389,39 @@ export default function ReportPage() {
                   id="location"
                   type="text"
                   required
-                  placeholder="e.g. 2nd Avenue, Opp. Canara Bank, Anna Nagar West"
+                  placeholder={t.locationPlaceholder}
                   value={form.location}
                   onChange={(e) => setForm({ ...form, location: e.target.value })}
                   maxLength={250}
                   className="w-full px-4 py-2.5 bg-[#FAF8F5] border border-[#E6E1D6] rounded-xl text-sm text-[#1C1917] placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#1B4332] focus:border-transparent transition-all"
                 />
                 {geoStatus && (
-                  <p className="text-[11px] text-[#1B4332] font-medium mt-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  <p className="text-[11px] text-[#1B4332] font-medium mt-1.5 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                     <span>{geoStatus}</span>
                   </p>
                 )}
               </div>
 
-              {/* Detailed Description */}
-              <div>
-                <label
-                  htmlFor="description"
-                  className="block text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-1.5"
-                >
-                  Detailed Description <span className="text-[#C85A32]">*</span>
-                </label>
-                <textarea
-                  id="description"
-                  required
-                  rows={4}
-                  placeholder="Provide precise details: danger level, vehicle skidding, traffic obstruction, duration of the issue..."
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  maxLength={2500}
-                  className="w-full px-4 py-2.5 bg-[#FAF8F5] border border-[#E6E1D6] rounded-xl text-sm text-[#1C1917] placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#1B4332] focus:border-transparent transition-all resize-y"
-                />
-                <div className="flex justify-between items-center text-[11px] text-[#57534E] mt-1">
-                  <span>Be specific to help field engineers locate and resolve faster.</span>
-                  <span>{form.description.length}/2500</span>
+              {/* AI Auto-Generated Description Notice Card (Replacing manual textarea) */}
+              <div className="bg-[#F8F6F1] border border-[#E6E1D6] rounded-xl p-4 flex items-start gap-3 shadow-xs">
+                <div className="w-8 h-8 rounded-lg bg-[#1B4332] flex items-center justify-center text-white shrink-0 mt-0.5">
+                  <Sparkles className="w-4 h-4 text-[#C85A32]" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-[#1C1917]">
+                    {t.aiAutoDescBadge}
+                  </h4>
+                  <p className="text-xs text-[#57534E] mt-0.5 leading-relaxed">
+                    {t.aiAutoDescNotice}
+                  </p>
                 </div>
               </div>
 
               {/* Photograph Upload with Preview and Removal */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-1.5">
-                  Attach Photograph Evidence <span className="text-stone-400 font-normal">(Optional, max 5MB)</span>
+                  {t.attachPhotoLabel}
                 </label>
 
                 {imagePreview ? (
@@ -441,44 +457,38 @@ export default function ReportPage() {
                       <Camera className="w-5 h-5" />
                     </div>
                     <span className="text-xs font-semibold text-[#1C1917]">
-                      Click to upload a photograph or drag and drop
-                    </span>
-                    <span className="text-[11px] text-[#57534E] mt-0.5">
-                      Accepts JPEG, PNG, or WebP up to 5 MB
+                      {t.photoDropHint}
                     </span>
                     <input
                       id="image-upload"
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
                       onChange={handleImageChange}
-                      className="sr-only"
+                      className="hidden"
                     />
                   </label>
                 )}
               </div>
 
               {/* Submit CTA */}
-              <div className="pt-4 border-t border-[#E6E1D6]">
+              <div className="pt-2">
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#C85A32] hover:bg-[#B04A26] disabled:bg-stone-300 text-white font-semibold text-base transition-all shadow-warm hover:shadow-warm-md"
+                  className="w-full py-3.5 px-6 rounded-xl bg-[#C85A32] hover:bg-[#B04A26] text-white font-semibold text-sm transition-all shadow-warm hover:shadow-warm-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
                     <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>{submitStage || "Processing Grievance..."}</span>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>{submitStage || t.submittingText}</span>
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-5 h-5" />
-                      <span>Submit Grievance to Municipal Triage</span>
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>{t.submitGrievanceBtn}</span>
                     </>
                   )}
                 </button>
-                <p className="text-center text-[11px] text-[#57534E] mt-3">
-                  Grievances are publicly audited. False submissions are subject to municipal verification rules.
-                </p>
               </div>
             </form>
           </div>

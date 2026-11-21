@@ -23,15 +23,15 @@ export const ComplaintStatusEnum = z.enum([
 export const CreateComplaintSchema = z.object({
   title: z
     .string()
-    .min(5, "Title must be at least 5 characters")
-    .max(150, "Title cannot exceed 150 characters"),
+    .min(3, "Title must be at least 3 characters")
+    .max(250, "Title cannot exceed 250 characters"),
   description: z
     .string()
-    .min(10, "Description must be at least 10 characters")
-    .max(2500, "Description cannot exceed 2500 characters"),
+    .max(5000)
+    .optional(),
   location: z
     .string()
-    .min(3, "Location description must be at least 3 characters")
+    .min(2, "Location description must be at least 2 characters")
     .max(250, "Location cannot exceed 250 characters"),
   coordinates: z
     .object({

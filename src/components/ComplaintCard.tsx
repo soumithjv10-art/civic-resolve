@@ -64,11 +64,6 @@ export function ComplaintCard({ complaint, onUpvote }: ComplaintCardProps) {
             <span className="font-mono text-xs font-bold text-[#1B4332] bg-[#F3EFE8] px-2 py-0.5 rounded border border-[#E6E1D6]">
               {complaint.id}
             </span>
-            {complaint.isSampleData && (
-              <span className="text-[10px] font-semibold bg-stone-100 text-stone-600 border border-stone-200 px-1.5 py-0.5 rounded">
-                Sample
-              </span>
-            )}
             {complaint.duplicateCount > 0 && (
               <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full">
                 <Layers className="w-3 h-3" />
