@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-inter: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-plus-jakarta-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --civic-bg: #FAF8F5;
+  --civic-card: #FFFFFF;
+  --civic-secondary: #F3EFE8;
+  --civic-primary: #1B4332;
+  --civic-primary-hover: #2D6A4F;
+  --civic-accent: #C85A32;
+  --civic-accent-hover: #B04A26;
+  --civic-text: #1C1917;
+  --civic-text-muted: #57534E;
+  --civic-border: #E6E1D6;
+}
+
+body {
+  background-color: var(--civic-bg);
+  color: var(--civic-text);
+  font-family: var(--font-inter);
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-plus-jakarta-sans);
+}
+
+/* Custom scrollbar for clean municipal interface */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #F3EFE8;
+}
+::-webkit-scrollbar-thumb {
+  background: #D7D0C5;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #B8B0A2;
+}
