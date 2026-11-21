@@ -127,7 +127,7 @@ Default configuration in `.env.local`:
 ```env
 GEMINI_API_KEY=PASTE_YOUR_GEMINI_API_KEY_HERE
 GEMINI_MODEL=gemini-3.8-flash
-GOOGLE_CLOUD_PROJECT=project-0ddb5f85-943e-41d9-890
+GOOGLE_CLOUD_PROJECT=projec
 GCS_BUCKET_NAME=civic-resolve-photos-soumith
 ADMIN_SECRET=CivicResolve2026!
 NEXT_PUBLIC_APP_URL=http://localhost:3000
