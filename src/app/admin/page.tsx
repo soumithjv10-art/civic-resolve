@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Complaint, ComplaintStatus, PriorityLevel } from "@/lib/types";
 import { PriorityBadge } from "@/components/PriorityBadge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -279,22 +279,24 @@ export default function AdminPage() {
   };
 
   // Filter complaints
-  const filteredComplaints = complaints.filter((c) => {
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      const match =
-        c.title.toLowerCase().includes(q) ||
-        c.location.toLowerCase().includes(q) ||
-        c.id.toLowerCase().includes(q) ||
-        c.department.toLowerCase().includes(q);
-      if (!match) return false;
-    }
-    if (filterCategory !== "All" && c.category !== filterCategory) return false;
-    if (filterStatus !== "All" && c.status !== filterStatus) return false;
-    if (filterPriority !== "All" && c.priority !== filterPriority) return false;
-    if (filterEscalatedOnly && (c.escalationLevel || 0) === 0) return false;
-    return true;
-  });
+  const filteredComplaints = useMemo(() => {
+    return complaints.filter((c) => {
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const match =
+          c.title.toLowerCase().includes(q) ||
+          c.location.toLowerCase().includes(q) ||
+          c.id.toLowerCase().includes(q) ||
+          c.department.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      if (filterCategory !== "All" && c.category !== filterCategory) return false;
+      if (filterStatus !== "All" && c.status !== filterStatus) return false;
+      if (filterPriority !== "All" && c.priority !== filterPriority) return false;
+      if (filterEscalatedOnly && (c.escalationLevel || 0) === 0) return false;
+      return true;
+    });
+  }, [complaints, search, filterCategory, filterStatus, filterPriority, filterEscalatedOnly]);
 
   // Helper for Escalation Badge
   const renderEscalationBadge = (level: number) => {

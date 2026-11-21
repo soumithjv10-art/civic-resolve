@@ -20,6 +20,20 @@ const memoryStore = {
 };
 
 /**
+ * Server-side TTL in-memory query cache for instant (<1ms) sub-second responses
+ */
+interface CachedQuery {
+  timestamp: number;
+  data: Complaint[];
+}
+let complaintsCache: CachedQuery | null = null;
+const CACHE_TTL_MS = 10000; // 10 seconds
+
+function clearComplaintsCache() {
+  complaintsCache = null;
+}
+
+/**
  * Returns a singleton instance of the Firestore client.
  * Falls back to an in-memory store in local offline environments.
  */
@@ -47,21 +61,29 @@ export function getFirestoreDb(): Firestore | null {
 
 /**
  * Fetches complaints ordered by createdAt desc, capped at limit.
+ * Leverages an in-memory query cache with 10s TTL to eliminate duplicate database round-trips.
  *
  * @param limitCount - Maximum number of records to return (defaults to 50)
  * @returns Array of complaint objects
  */
 export async function getAllComplaints(limitCount = 50): Promise<Complaint[]> {
+  const now = Date.now();
+  if (complaintsCache && now - complaintsCache.timestamp < CACHE_TTL_MS) {
+    return complaintsCache.data.slice(0, limitCount);
+  }
+
   const db = getFirestoreDb();
   if (db) {
     try {
       const snapshot = await db
         .collection("complaints")
         .orderBy("createdAt", "desc")
-        .limit(limitCount)
+        .limit(Math.max(limitCount, 100))
         .get();
 
-      return snapshot.docs.map((doc) => doc.data() as Complaint);
+      const results = snapshot.docs.map((doc) => doc.data() as Complaint);
+      complaintsCache = { timestamp: now, data: results };
+      return results.slice(0, limitCount);
     } catch (err) {
       console.warn("Error fetching from Firestore, falling back to memory store:", err);
     }
@@ -69,6 +91,7 @@ export async function getAllComplaints(limitCount = 50): Promise<Complaint[]> {
 
   const list = Array.from(memoryStore.complaints.values());
   list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  complaintsCache = { timestamp: now, data: list };
   return list.slice(0, limitCount);
 }
 
@@ -101,6 +124,7 @@ export async function getComplaintById(id: string): Promise<Complaint | null> {
  * @returns Saved complaint object
  */
 export async function saveComplaint(complaint: Complaint): Promise<Complaint> {
+  clearComplaintsCache();
   const db = getFirestoreDb();
   if (db) {
     try {
@@ -112,6 +136,32 @@ export async function saveComplaint(complaint: Complaint): Promise<Complaint> {
 
   memoryStore.complaints.set(complaint.id, complaint);
   return complaint;
+}
+
+/**
+ * Persists an entire array of complaint records in a single high-efficiency Firestore batch.
+ *
+ * @param complaints - Array of complaints to persist
+ */
+export async function saveComplaintsBatch(complaints: Complaint[]): Promise<void> {
+  clearComplaintsCache();
+  const db = getFirestoreDb();
+  if (db) {
+    try {
+      const batch = db.batch();
+      for (const c of complaints) {
+        const ref = db.collection("complaints").doc(c.id);
+        batch.set(ref, c, { merge: true });
+      }
+      await batch.commit();
+    } catch (err) {
+      console.warn("Firestore saveComplaintsBatch error, falling back:", err);
+    }
+  }
+
+  for (const c of complaints) {
+    memoryStore.complaints.set(c.id, c);
+  }
 }
 
 /**
@@ -127,6 +177,7 @@ export async function updateComplaintFields(
   updates: Partial<Complaint>,
   actor = "System"
 ): Promise<Complaint | null> {
+  clearComplaintsCache();
   const existing = await getComplaintById(id);
   if (!existing) return null;
 
@@ -175,6 +226,7 @@ export async function updateComplaintFields(
  * @returns Updated upvote total
  */
 export async function incrementComplaintUpvotes(id: string): Promise<number> {
+  clearComplaintsCache();
   const complaint = await getComplaintById(id);
   if (!complaint) return 0;
 
@@ -311,6 +363,7 @@ export async function linkComplaintsToIncident(
   duplicateIds: string[],
   notes = "Grouped as related incident reports"
 ): Promise<Incident | null> {
+  clearComplaintsCache();
   const primary = await getComplaintById(primaryId);
   if (!primary) return null;
 

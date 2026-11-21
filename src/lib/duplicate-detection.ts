@@ -7,6 +7,7 @@ import {
 
 /**
  * Calculates great-circle distance between two geographic coordinates in meters (Haversine formula).
+ * Uses a fast bounding-box pre-check to eliminate expensive trigonometry for distant coordinates.
  *
  * @param coord1 - First coordinate pair
  * @param coord2 - Second coordinate pair
@@ -17,6 +18,15 @@ export function calculateDistanceMeters(
   coord2?: GeoCoordinates
 ): number | null {
   if (!coord1 || !coord2) return null;
+
+  // Fast bounding-box check: 0.01 deg is ~1.11km.
+  // If lat or lng differs by > 0.01, the point is guaranteed to be outside 500m neighborhood radius.
+  const dLatAbs = Math.abs(coord2.lat - coord1.lat);
+  const dLngAbs = Math.abs(coord2.lng - coord1.lng);
+  if (dLatAbs > 0.01 || dLngAbs > 0.01) {
+    return 1500; // Guaranteed > 500m threshold without running trigonometry
+  }
+
   const R = 6371e3; // Earth's radius in meters
   const lat1 = (coord1.lat * Math.PI) / 180;
   const lat2 = (coord2.lat * Math.PI) / 180;

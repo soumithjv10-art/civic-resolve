@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { Hero } from "@/components/Hero";
 import { StatsBar } from "@/components/StatsBar";
 import { ComplaintCard } from "@/components/ComplaintCard";
@@ -63,11 +63,11 @@ export default function HomePage() {
     }
   };
 
-  const handleUpvoteUpdate = (id: string, newCount: number) => {
+  const handleUpvoteUpdate = useCallback((id: string, newCount: number) => {
     setComplaints((prev) =>
       prev.map((c) => (c.id === id ? { ...c, upvotes: newCount } : c))
     );
-  };
+  }, []);
 
   const filteredComplaints = useMemo(() => {
     return complaints.filter((c) => {

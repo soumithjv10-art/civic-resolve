@@ -1,14 +1,14 @@
 import { INITIAL_SEED_COMPLAINTS } from "@/lib/seed-data";
-import { saveComplaint } from "@/lib/firestore";
+import { saveComplaintsBatch } from "@/lib/firestore";
 import { jsonSuccess, jsonError } from "@/lib/api-utils";
 
 /**
- * POST /api/seed - Populates database with sample civic records if empty.
- * Executes writes in parallel via Promise.all for maximum I/O throughput.
+ * POST /api/seed - Populates database with sample civic records.
+ * Uses atomic Firestore batch commit for single-roundtrip persistence.
  */
 export async function POST() {
   try {
-    await Promise.all(INITIAL_SEED_COMPLAINTS.map((item) => saveComplaint(item)));
+    await saveComplaintsBatch(INITIAL_SEED_COMPLAINTS);
 
     return jsonSuccess({
       message: `Successfully seeded ${INITIAL_SEED_COMPLAINTS.length} civic infrastructure complaints.`,
