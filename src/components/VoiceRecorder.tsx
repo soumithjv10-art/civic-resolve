@@ -2,7 +2,48 @@
 
 import { useState, useRef, useEffect } from "react";
 import { VoiceTranscribeResult } from "@/lib/types";
-import { Mic, MicOff, Loader2, Sparkles, AlertCircle, Languages, Check } from "lucide-react";
+import { Mic, MicOff, Loader2, AlertCircle, Languages } from "lucide-react";
+
+interface SpeechRecognitionResultItem {
+  transcript: string;
+  confidence: number;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  [index: number]: {
+    [index: number]: SpeechRecognitionResultItem;
+  };
+}
+
+interface SpeechRecognitionEvent {
+  results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognitionErrorEvent {
+  error: string;
+  message?: string;
+}
+
+interface ISpeechRecognition extends EventTarget {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => ISpeechRecognition;
+
+interface WindowWithSpeech {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+}
 
 interface VoiceRecorderProps {
   onDraftGenerated: (draft: VoiceTranscribeResult) => void;
@@ -15,17 +56,16 @@ export function VoiceRecorder({ onDraftGenerated, className = "" }: VoiceRecorde
   const [transcript, setTranscript] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isSpeechSupported, setIsSpeechSupported] = useState(true);
 
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<ISpeechRecognition | null>(null);
 
   useEffect(() => {
     // Check Web Speech API support
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const win = window as unknown as WindowWithSpeech;
+    const SpeechRecognitionClass = win.SpeechRecognition || win.webkitSpeechRecognition;
 
-    if (!SpeechRecognition) {
-      setIsSpeechSupported(false);
+    if (!SpeechRecognitionClass) {
+      // Speech recognition not supported in current browser environment
     }
   }, []);
 
@@ -33,10 +73,10 @@ export function VoiceRecorder({ onDraftGenerated, className = "" }: VoiceRecorde
     setErrorMessage(null);
     setTranscript("");
 
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const win = window as unknown as WindowWithSpeech;
+    const SpeechRecognitionClass = win.SpeechRecognition || win.webkitSpeechRecognition;
 
-    if (!SpeechRecognition) {
+    if (!SpeechRecognitionClass) {
       setErrorMessage(
         "Web Speech API is not supported in this browser. Please use Google Chrome or Edge, or type your complaint manually."
       );
@@ -44,7 +84,7 @@ export function VoiceRecorder({ onDraftGenerated, className = "" }: VoiceRecorde
     }
 
     try {
-      const recognition = new SpeechRecognition();
+      const recognition = new SpeechRecognitionClass();
       recognition.lang = selectedLang;
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -53,7 +93,7 @@ export function VoiceRecorder({ onDraftGenerated, className = "" }: VoiceRecorde
         setIsRecording(true);
       };
 
-      recognition.onresult = (event: any) => {
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
         let currentTranscript = "";
         for (let i = 0; i < event.results.length; i++) {
           currentTranscript += event.results[i][0].transcript + " ";
@@ -61,7 +101,7 @@ export function VoiceRecorder({ onDraftGenerated, className = "" }: VoiceRecorde
         setTranscript(currentTranscript.trim());
       };
 
-      recognition.onerror = (event: any) => {
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
         console.warn("Speech recognition error:", event.error);
         if (event.error === "not-allowed") {
           setErrorMessage("Microphone access was denied. Please allow microphone permissions in your browser.");

@@ -4,6 +4,7 @@ import {
   AdminAuthSchema,
   UpdateComplaintAdminSchema,
 } from "@/lib/validation";
+import { ComplaintStatus } from "@/lib/types";
 
 describe("Validation Schemas", () => {
   it("validates a properly formatted complaint payload", () => {
@@ -56,7 +57,7 @@ describe("Validation Schemas", () => {
       description: "Water is leaking heavily on the road.",
       location: "Anna Salai",
       imageBase64: "dGVzdA==",
-      imageMimeType: "application/pdf" as any,
+      imageMimeType: "application/pdf" as unknown as "image/jpeg",
     };
 
     const res = CreateComplaintSchema.safeParse(invalidImage);
@@ -80,7 +81,7 @@ describe("Validation Schemas", () => {
 
     expect(
       UpdateComplaintAdminSchema.safeParse({
-        status: "NonExistentStatus" as any,
+        status: "NonExistentStatus" as unknown as ComplaintStatus,
       }).success
     ).toBe(false);
   });

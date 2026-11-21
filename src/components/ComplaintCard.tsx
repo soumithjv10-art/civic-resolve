@@ -1,7 +1,7 @@
 "use client";
 
+import React, { useState } from "react";
 import Link from "next/link";
-import { useState } from "react";
 import { Complaint } from "@/lib/types";
 import { PriorityBadge } from "./PriorityBadge";
 import { StatusBadge } from "./StatusBadge";
@@ -11,12 +11,9 @@ import {
   MapPin,
   Building2,
   ThumbsUp,
-  Clock,
   Sparkles,
   Layers,
   ArrowUpRight,
-  Shield,
-  FileQuestion,
 } from "lucide-react";
 
 interface ComplaintCardProps {
@@ -24,7 +21,7 @@ interface ComplaintCardProps {
   onUpvote?: (id: string, newCount: number) => void;
 }
 
-export function ComplaintCard({ complaint, onUpvote }: ComplaintCardProps) {
+function ComplaintCardComponent({ complaint, onUpvote }: ComplaintCardProps) {
   const [upvotes, setUpvotes] = useState(complaint.upvotes || 0);
   const [hasUpvoted, setHasUpvoted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,94 +45,101 @@ export function ComplaintCard({ complaint, onUpvote }: ComplaintCardProps) {
         setUpvotes(data.upvotes);
         onUpvote?.(complaint.id, data.upvotes);
       }
-    } catch (err) {
-      console.warn("Upvote failed:", err);
+    } catch {
+      // Revert optimistic increment on failure
+      setUpvotes((prev) => Math.max(0, prev - 1));
+      setHasUpvoted(false);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="bg-[#FFFFFF] rounded-2xl border border-[#E6E1D6] p-5 sm:p-6 shadow-warm hover:shadow-warm-md transition-all flex flex-col justify-between group">
+    <div className="bg-[#FAF8F5] border border-[#E6E1D6] rounded-2xl p-5 hover:shadow-md hover:border-[#D0C7B8] transition-all flex flex-col justify-between">
       <div>
-        {/* Top Meta Bar */}
+        {/* Top Badges */}
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-xs font-bold text-[#1B4332] bg-[#F3EFE8] px-2 py-0.5 rounded border border-[#E6E1D6]">
-              {complaint.id}
-            </span>
-            {complaint.duplicateCount > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full">
-                <Layers className="w-3 h-3" />
-                {complaint.duplicateCount + 1} reports
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <PriorityBadge priority={complaint.priority} />
             <StatusBadge status={complaint.status} />
           </div>
+
+          <span className="text-[11px] font-mono text-[#57534E] tracking-tight bg-white px-2 py-0.5 rounded-md border border-[#E6E1D6]">
+            {complaint.id}
+          </span>
         </div>
 
         {/* Title */}
-        <Link href={`/complaint/${complaint.id}`} className="block group-hover:text-[#1B4332]">
-          <h3 className="font-heading font-semibold text-base sm:text-lg text-[#1C1917] mb-2 leading-snug transition-colors line-clamp-2">
+        <h3 className="text-base font-bold text-[#1C1917] leading-snug line-clamp-2 mb-1.5">
+          <Link
+            href={`/complaint/${complaint.id}`}
+            className="hover:text-[#1B4332] transition-colors"
+          >
             {complaint.title}
-          </h3>
-        </Link>
+          </Link>
+        </h3>
 
-        {/* Location & Reported Date */}
-        <div className="flex flex-wrap items-center gap-y-1 gap-x-3 text-xs text-[#57534E] mb-3">
-          <span className="inline-flex items-center gap-1">
+        {/* Location & Department */}
+        <div className="space-y-1 mb-3 text-xs text-[#57534E]">
+          <div className="flex items-center gap-1.5 truncate">
             <MapPin className="w-3.5 h-3.5 text-[#C85A32] shrink-0" />
-            <span className="truncate max-w-[220px]">{complaint.location}</span>
-          </span>
-          <span className="text-stone-300">•</span>
-          <span className="inline-flex items-center gap-1">
-            <Clock className="w-3.5 h-3.5 text-stone-400" />
-            <span>{formatDate(complaint.createdAt)}</span>
-          </span>
+            <span className="truncate">{complaint.location}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 truncate">
+            <Building2 className="w-3.5 h-3.5 text-[#1B4332] shrink-0" />
+            <span className="truncate">{complaint.department}</span>
+          </div>
         </div>
 
-        {/* AI Editorial Summary Box */}
-        <div className="bg-[#FAF8F5] rounded-xl p-3 border border-[#E6E1D6] mb-4 text-xs text-[#57534E] leading-relaxed">
-          <div className="flex items-center gap-1.5 font-semibold text-[#1C1917] mb-1">
-            <Sparkles className="w-3.5 h-3.5 text-[#C85A32]" />
-            <span>AI Triage Summary</span>
-            {complaint.isFallback && (
-              <span className="text-[10px] font-normal text-stone-500 bg-white px-1.5 py-0.2 rounded border border-[#E6E1D6]">
-                Rule-based
-              </span>
-            )}
+        {/* AI Municipal Summary */}
+        {complaint.aiSummary && (
+          <div className="mb-3 p-2.5 rounded-xl bg-white border border-[#E6E1D6] text-xs text-[#1C1917] flex items-start gap-2">
+            <Sparkles className="w-3.5 h-3.5 text-[#C85A32] shrink-0 mt-0.5" />
+            <p className="line-clamp-2 leading-relaxed italic">{complaint.aiSummary}</p>
           </div>
-          <p className="line-clamp-2">{complaint.aiSummary}</p>
-        </div>
-      </div>
+        )}
 
-      {/* Footer Info & Actions */}
-      <div className="pt-3 border-t border-[#E6E1D6] flex flex-col gap-3">
-        {/* Department & SLA Row */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-1 text-[#1B4332] font-medium">
-            <Building2 className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate max-w-[200px]">{complaint.department}</span>
-          </div>
-          <div>
-            <SLAIndicator
-              priority={complaint.priority}
-              createdAt={complaint.createdAt}
-              slaDeadline={complaint.slaDeadline}
-              status={complaint.status}
-              resolvedAt={complaint.resolvedAt}
+        {/* Attached Photo Preview */}
+        {complaint.imageUrl && (
+          <div className="mb-3 relative rounded-xl overflow-hidden aspect-video max-h-40 bg-[#E6E1D6]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={complaint.imageUrl}
+              alt={complaint.title}
+              className="w-full h-full object-cover"
+              loading="lazy"
             />
           </div>
+        )}
+
+        {/* Duplicate Indicator */}
+        {(complaint.duplicateCount || 0) > 0 && (
+          <div className="mb-3 inline-flex items-center gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg">
+            <Layers className="w-3 h-3" />
+            <span>Grouped incident ({complaint.duplicateCount} duplicate reports)</span>
+          </div>
+        )}
+      </div>
+
+      {/* Footer Meta & Actions */}
+      <div className="pt-3 border-t border-[#E6E1D6] mt-2 flex flex-col gap-2.5">
+        <div className="flex items-center justify-between text-xs text-[#57534E]">
+          <span>Logged {formatDate(complaint.createdAt)}</span>
+          <SLAIndicator
+            priority={complaint.priority}
+            createdAt={complaint.createdAt}
+            slaDeadline={complaint.slaDeadline}
+            status={complaint.status}
+            resolvedAt={complaint.resolvedAt}
+          />
         </div>
 
-        {/* Upvote & View CTA */}
-        <div className="flex items-center justify-between pt-1">
+        <div className="flex items-center justify-between gap-2 pt-1">
           <button
+            type="button"
             onClick={handleUpvote}
-            disabled={hasUpvoted}
+            disabled={hasUpvoted || isSubmitting}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               hasUpvoted
                 ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
@@ -159,3 +163,5 @@ export function ComplaintCard({ complaint, onUpvote }: ComplaintCardProps) {
     </div>
   );
 }
+
+export const ComplaintCard = React.memo(ComplaintCardComponent);

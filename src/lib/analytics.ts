@@ -3,129 +3,191 @@ import {
   AnalyticsData,
   DepartmentMetric,
   PredictiveRecommendation,
-  ComplaintCategory,
-  PriorityLevel,
-  ComplaintStatus,
 } from "./types";
 import { getSLAStatus } from "./sla-engine";
 import { DEPARTMENTS } from "./constants";
 
+interface DeptAccumulator {
+  totalAssigned: number;
+  pending: number;
+  overdue: number;
+  adminResolved: number;
+  aiVerified: number;
+  citizenConfirmed: number;
+  totalResolvedHours: number;
+  slaCompliantResolved: number;
+}
+
+/**
+ * Calculates civic resolution analytics, departmental scorecards, and predictive
+ * municipal insights from complaint records in a single high-efficiency O(N) pass.
+ *
+ * @param complaints - Array of complaint records
+ * @returns Real-time calculated analytics dashboard data
+ */
 export function calculateCivicAnalytics(complaints: Complaint[]): AnalyticsData {
   const totalComplaints = complaints.length;
-  const resolved = complaints.filter((c) => c.status === "Resolved");
-  const openComplaints = complaints.filter((c) => c.status !== "Resolved");
 
-  // Overdue count
-  const overdueCount = openComplaints.filter((c) => {
-    const sla = getSLAStatus(c.priority, c.createdAt, c.slaDeadline, c.status);
-    return sla.isOverdue;
-  }).length;
-
-  const overallResolutionRate =
-    totalComplaints > 0 ? Math.round((resolved.length / totalComplaints) * 100) : 0;
-
-  // Average resolution hours for resolved issues
+  let openComplaints = 0;
+  let resolvedComplaints = 0;
+  let overdueComplaints = 0;
   let totalResolvedHours = 0;
   let slaCompliantCount = 0;
 
-  resolved.forEach((c) => {
-    const start = new Date(c.createdAt).getTime();
-    const end = c.resolvedAt ? new Date(c.resolvedAt).getTime() : new Date(c.updatedAt).getTime();
-    const hours = Math.max(0.5, (end - start) / (1000 * 60 * 60));
-    totalResolvedHours += hours;
-
-    const sla = getSLAStatus(c.priority, c.createdAt, c.slaDeadline, c.status, c.resolvedAt);
-    if (sla.statusLabel === "Resolved Within SLA") {
-      slaCompliantCount++;
-    }
-  });
-
-  const avgResolutionHours =
-    resolved.length > 0 ? Math.round((totalResolvedHours / resolved.length) * 10) / 10 : 0;
-
-  const slaComplianceRate =
-    resolved.length > 0 ? Math.round((slaCompliantCount / resolved.length) * 100) : 100;
-
-  // Category distribution
   const categoryDistribution: Record<string, number> = {};
-  complaints.forEach((c) => {
-    categoryDistribution[c.category] = (categoryDistribution[c.category] || 0) + 1;
-  });
-
-  // Priority distribution
   const priorityDistribution: Record<string, number> = {};
-  complaints.forEach((c) => {
-    priorityDistribution[c.priority] = (priorityDistribution[c.priority] || 0) + 1;
-  });
-
-  // Status distribution
   const statusDistribution: Record<string, number> = {};
-  complaints.forEach((c) => {
+  const localityMap = new Map<string, { count: number; category: string }>();
+
+  let roadIssuesCount = 0;
+  let electricalIssuesCount = 0;
+  let electricalHasCritical = false;
+  let drainageIssuesCount = 0;
+
+  // Initialize department metrics map for O(1) record accumulation
+  const deptMap = new Map<string, DeptAccumulator>();
+  for (const dept of DEPARTMENTS) {
+    deptMap.set(dept.name, {
+      totalAssigned: 0,
+      pending: 0,
+      overdue: 0,
+      adminResolved: 0,
+      aiVerified: 0,
+      citizenConfirmed: 0,
+      totalResolvedHours: 0,
+      slaCompliantResolved: 0,
+    });
+  }
+
+  // Single-pass O(N) traversal over all complaint records
+  for (let i = 0; i < totalComplaints; i++) {
+    const c = complaints[i];
+
+    // Distributions
+    categoryDistribution[c.category] = (categoryDistribution[c.category] || 0) + 1;
+    priorityDistribution[c.priority] = (priorityDistribution[c.priority] || 0) + 1;
     statusDistribution[c.status] = (statusDistribution[c.status] || 0) + 1;
-  });
 
-  // Department Metrics
-  const departmentMetrics: DepartmentMetric[] = DEPARTMENTS.map((dept) => {
-    const assigned = complaints.filter((c) => c.department === dept.name);
-    const deptResolved = assigned.filter((c) => c.status === "Resolved");
-    const deptPending = assigned.filter((c) => c.status !== "Resolved");
+    // Locality aggregation
+    const parts = c.location.split(",");
+    const localityKey = parts[parts.length > 1 ? parts.length - 2 : 0].trim();
+    const currLoc = localityMap.get(localityKey);
+    if (currLoc) {
+      currLoc.count += 1;
+    } else {
+      localityMap.set(localityKey, { count: 1, category: c.category });
+    }
 
-    const deptOverdue = deptPending.filter((c) => {
-      const sla = getSLAStatus(c.priority, c.createdAt, c.slaDeadline, c.status);
-      return sla.isOverdue;
-    }).length;
+    const isResolved = c.status === "Resolved";
+    const deptAcc = deptMap.get(c.department);
 
-    const aiVerified = assigned.filter(
-      (c) => c.resolutionEvidence?.aiVerdict !== undefined
-    ).length;
+    if (deptAcc) {
+      deptAcc.totalAssigned++;
+      if (c.resolutionEvidence?.aiVerdict !== undefined) {
+        deptAcc.aiVerified++;
+      }
+      if (c.verificationStatus === "Confirmed Resolved") {
+        deptAcc.citizenConfirmed++;
+      }
+    }
 
-    const citizenConfirmed = assigned.filter(
-      (c) => c.verificationStatus === "Confirmed Resolved"
-    ).length;
-
-    let deptTotalHours = 0;
-    let deptCompliant = 0;
-
-    deptResolved.forEach((c) => {
+    if (isResolved) {
+      resolvedComplaints++;
       const start = new Date(c.createdAt).getTime();
       const end = c.resolvedAt ? new Date(c.resolvedAt).getTime() : new Date(c.updatedAt).getTime();
-      deptTotalHours += Math.max(0.5, (end - start) / (1000 * 60 * 60));
+      const hours = Math.max(0.5, (end - start) / (1000 * 60 * 60));
+      totalResolvedHours += hours;
 
       const sla = getSLAStatus(c.priority, c.createdAt, c.slaDeadline, c.status, c.resolvedAt);
       if (sla.statusLabel === "Resolved Within SLA") {
-        deptCompliant++;
+        slaCompliantCount++;
       }
-    });
 
-    const avgHours =
-      deptResolved.length > 0 ? Math.round((deptTotalHours / deptResolved.length) * 10) / 10 : 0;
+      if (deptAcc) {
+        deptAcc.adminResolved++;
+        deptAcc.totalResolvedHours += hours;
+        if (sla.statusLabel === "Resolved Within SLA") {
+          deptAcc.slaCompliantResolved++;
+        }
+      }
+    } else {
+      openComplaints++;
+      const sla = getSLAStatus(c.priority, c.createdAt, c.slaDeadline, c.status);
+      if (sla.isOverdue) {
+        overdueComplaints++;
+      }
 
-    const compRate =
-      deptResolved.length > 0 ? Math.round((deptCompliant / deptResolved.length) * 100) : 100;
+      if (deptAcc) {
+        deptAcc.pending++;
+        if (sla.isOverdue) {
+          deptAcc.overdue++;
+        }
+      }
+    }
+
+    // Predictive counters
+    if (c.category === "Roads & Potholes") {
+      roadIssuesCount++;
+    } else if (c.category === "Streetlights & Electrical") {
+      electricalIssuesCount++;
+      if (c.priority === "Critical") {
+        electricalHasCritical = true;
+      }
+    } else if (c.category === "Drainage & Sewage") {
+      drainageIssuesCount++;
+    }
+  }
+
+  // Aggregate final departmental metrics
+  const departmentMetrics: DepartmentMetric[] = DEPARTMENTS.map((dept) => {
+    const acc = deptMap.get(dept.name) || {
+      totalAssigned: 0,
+      pending: 0,
+      overdue: 0,
+      adminResolved: 0,
+      aiVerified: 0,
+      citizenConfirmed: 0,
+      totalResolvedHours: 0,
+      slaCompliantResolved: 0,
+    };
+
+    const avgResolutionHours =
+      acc.adminResolved > 0
+        ? Math.round((acc.totalResolvedHours / acc.adminResolved) * 10) / 10
+        : 0;
+
+    const slaComplianceRate =
+      acc.adminResolved > 0
+        ? Math.round((acc.slaCompliantResolved / acc.adminResolved) * 100)
+        : 100;
 
     return {
       departmentName: dept.name,
-      totalAssigned: assigned.length,
-      pending: deptPending.length,
-      overdue: deptOverdue,
-      adminResolved: deptResolved.length,
-      aiVerified,
-      citizenConfirmed,
-      avgResolutionHours: avgHours,
-      slaComplianceRate: compRate,
+      totalAssigned: acc.totalAssigned,
+      pending: acc.pending,
+      overdue: acc.overdue,
+      adminResolved: acc.adminResolved,
+      aiVerified: acc.aiVerified,
+      citizenConfirmed: acc.citizenConfirmed,
+      avgResolutionHours,
+      slaComplianceRate,
     };
   });
 
-  // Geographic Hotspots
-  const localityMap = new Map<string, { count: number; category: string }>();
-  complaints.forEach((c) => {
-    // Extract primary landmark or neighborhood
-    const parts = c.location.split(",");
-    const key = parts[parts.length > 1 ? parts.length - 2 : 0].trim();
-    const curr = localityMap.get(key) || { count: 0, category: c.category };
-    localityMap.set(key, { count: curr.count + 1, category: c.category });
-  });
+  const overallResolutionRate =
+    totalComplaints > 0 ? Math.round((resolvedComplaints / totalComplaints) * 100) : 0;
 
+  const avgResolutionHours =
+    resolvedComplaints > 0
+      ? Math.round((totalResolvedHours / resolvedComplaints) * 10) / 10
+      : 0;
+
+  const slaComplianceRate =
+    resolvedComplaints > 0
+      ? Math.round((slaCompliantCount / resolvedComplaints) * 100)
+      : 100;
+
+  // Geographic Hotspots (>= 2 complaints)
   const geographicHotspots: Array<{ locality: string; count: number; category: string }> = [];
   localityMap.forEach((val, key) => {
     if (val.count >= 2) {
@@ -137,57 +199,53 @@ export function calculateCivicAnalytics(complaints: Complaint[]): AnalyticsData 
     }
   });
 
-  // Predictive Recommendations strictly grounded in data (empty if insufficient data)
+  // Predictive Recommendations strictly grounded in data
   const predictiveInsights: PredictiveRecommendation[] = [];
 
-  // Check recurring potholes / road wear
-  const roadIssues = complaints.filter((c) => c.category === "Roads & Potholes");
-  if (roadIssues.length >= 2) {
+  if (roadIssuesCount >= 2) {
     predictiveInsights.push({
       id: "PRED-ROAD-01",
       category: "Roads & Potholes",
       locality: "OMR & Arterial Corridors",
-      incidentCount: roadIssues.length,
-      recommendation: `High recurrence of subsurface asphalt cratering detected (${roadIssues.length} active reports). Surface re-tarring alone will degrade; milled asphalt resurfacing required before monsoon.`,
+      incidentCount: roadIssuesCount,
+      recommendation: `High recurrence of subsurface asphalt cratering detected (${roadIssuesCount} active reports). Surface re-tarring alone will degrade; milled asphalt resurfacing required before monsoon.`,
       riskLevel: "High",
-      preventativeAction: "Issue tender for mechanical cold-milling and high-grade bitumin seal on heavy transit lanes.",
+      preventativeAction:
+        "Issue tender for mechanical cold-milling and high-grade bitumin seal on heavy transit lanes.",
     });
   }
 
-  // Check electrical or streetlights outages
-  const electricalIssues = complaints.filter((c) => c.category === "Streetlights & Electrical");
-  if (electricalIssues.length >= 2) {
-    const hasCritical = electricalIssues.some((c) => c.priority === "Critical");
+  if (electricalIssuesCount >= 2) {
     predictiveInsights.push({
       id: "PRED-ELEC-02",
       category: "Streetlights & Electrical",
       locality: "Zone 8 & High-Mast Junctions",
-      incidentCount: electricalIssues.length,
-      recommendation: `Multiple feeder circuit failures detected across bypass junctions (${electricalIssues.length} reports). Correlates with underground cable moisture ingress.`,
-      riskLevel: hasCritical ? "Critical" : "Elevated",
-      preventativeAction: "Dispatch electrical engineering teams for underground insulation resistance testing and junction box waterproofing.",
+      incidentCount: electricalIssuesCount,
+      recommendation: `Multiple feeder circuit failures detected across bypass junctions (${electricalIssuesCount} reports). Correlates with underground cable moisture ingress.`,
+      riskLevel: electricalHasCritical ? "Critical" : "Elevated",
+      preventativeAction:
+        "Dispatch electrical engineering teams for underground insulation resistance testing and junction box waterproofing.",
     });
   }
 
-  // Check drainage & sewage backflow
-  const drainageIssues = complaints.filter((c) => c.category === "Drainage & Sewage");
-  if (drainageIssues.length >= 2) {
+  if (drainageIssuesCount >= 2) {
     predictiveInsights.push({
       id: "PRED-DRAIN-03",
       category: "Drainage & Sewage",
       locality: "Velachery & Adyar Basin",
-      incidentCount: drainageIssues.length,
-      recommendation: `Repeated storm drain surcharge and manhole overflow (${drainageIssues.length} reports). Suggests upstream silt accumulation and solid waste choke points.`,
+      incidentCount: drainageIssuesCount,
+      recommendation: `Repeated storm drain surcharge and manhole overflow (${drainageIssuesCount} reports). Suggests upstream silt accumulation and solid waste choke points.`,
       riskLevel: "High",
-      preventativeAction: "Deploy high-pressure robotic jetting and desilting machines along primary storm arterial channels.",
+      preventativeAction:
+        "Deploy high-pressure robotic jetting and desilting machines along primary storm arterial channels.",
     });
   }
 
   return {
     totalComplaints,
-    openComplaints: openComplaints.length,
-    resolvedComplaints: resolved.length,
-    overdueComplaints: overdueCount,
+    openComplaints,
+    resolvedComplaints,
+    overdueComplaints,
     overallResolutionRate,
     avgResolutionHours,
     slaComplianceRate,

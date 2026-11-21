@@ -1,5 +1,8 @@
 import { ComplaintCategory, PriorityLevel, DepartmentInfo, SLAConfig } from "./types";
 
+/**
+ * Standard municipal categories supported by CivicResolve.
+ */
 export const COMPLAINT_CATEGORIES: ComplaintCategory[] = [
   "Roads & Potholes",
   "Garbage & Sanitation",
@@ -10,6 +13,9 @@ export const COMPLAINT_CATEGORIES: ComplaintCategory[] = [
   "Other",
 ];
 
+/**
+ * Priority levels assigned by AI municipal triage or departmental escalation.
+ */
 export const PRIORITY_LEVELS: PriorityLevel[] = [
   "Low",
   "Medium",
@@ -17,6 +23,9 @@ export const PRIORITY_LEVELS: PriorityLevel[] = [
   "Critical",
 ];
 
+/**
+ * Civic municipal departments handling resolution workflows.
+ */
 export const DEPARTMENTS: DepartmentInfo[] = [
   {
     id: "pwd",
@@ -60,6 +69,9 @@ export const DEPARTMENTS: DepartmentInfo[] = [
   },
 ];
 
+/**
+ * Binding Service Level Agreement (SLA) configurations per priority tier.
+ */
 export const SLA_TARGETS: Record<PriorityLevel, SLAConfig> = {
   Critical: {
     priority: "Critical",
@@ -83,6 +95,9 @@ export const SLA_TARGETS: Record<PriorityLevel, SLAConfig> = {
   },
 };
 
+/**
+ * Default municipal department mapping per category.
+ */
 export const DEFAULT_DEPARTMENT_FOR_CATEGORY: Record<ComplaintCategory, string> = {
   "Roads & Potholes": "Public Works Department (PWD)",
   "Garbage & Sanitation": "Solid Waste Management & Sanitation",
@@ -92,3 +107,21 @@ export const DEFAULT_DEPARTMENT_FOR_CATEGORY: Record<ComplaintCategory, string> 
   "Public Safety & Parks": "Parks, Playgrounds & Public Safety Dept",
   "Other": "Public Works Department (PWD)",
 };
+
+/** Maximum allowed file size for image evidence uploads (5MB) */
+export const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+
+/** Allowed MIME types for image evidence */
+export const ALLOWED_IMAGE_MIMES = ["image/jpeg", "image/png", "image/webp"] as const;
+
+/** Cache headers and TTLs for public read APIs */
+export const CACHE_TTL_SECONDS = 15;
+export const CACHE_STALE_WHILE_REVALIDATE_SECONDS = 30;
+
+/** Default pagination limit for complaint queries */
+export const DEFAULT_QUERY_LIMIT = 50;
+
+/** Distance thresholds (in meters) for civic duplicate detection */
+export const DUPLICATE_DISTANCE_CLOSE_METERS = 50;
+export const DUPLICATE_DISTANCE_NEAR_METERS = 200;
+export const DUPLICATE_DISTANCE_NEIGHBORHOOD_METERS = 500;

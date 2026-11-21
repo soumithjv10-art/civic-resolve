@@ -2,6 +2,9 @@ import { Firestore } from "@google-cloud/firestore";
 import { Complaint, Incident, AuditLog, Resolution, EscalationRecord } from "./types";
 import { INITIAL_SEED_COMPLAINTS } from "./seed-data";
 
+/**
+ * Singleton instance of Google Cloud Firestore client.
+ */
 let firestoreInstance: Firestore | null = null;
 let useMemoryStore = false;
 
@@ -16,12 +19,15 @@ const memoryStore = {
   escalations: new Array<EscalationRecord>(),
 };
 
+/**
+ * Returns a singleton instance of the Firestore client.
+ * Falls back to an in-memory store in local offline environments.
+ */
 export function getFirestoreDb(): Firestore | null {
   if (useMemoryStore) return null;
   if (!firestoreInstance) {
     try {
       const projectId = process.env.GOOGLE_CLOUD_PROJECT;
-      // If no valid GCP project is set or if credentials are explicitly missing in local test, fallback gracefully
       if (!projectId || projectId.includes("placeholder")) {
         useMemoryStore = true;
         return null;
@@ -40,7 +46,10 @@ export function getFirestoreDb(): Firestore | null {
 }
 
 /**
- * Fetch all complaints (ordered by createdAt desc, capped at limit)
+ * Fetches complaints ordered by createdAt desc, capped at limit.
+ *
+ * @param limitCount - Maximum number of records to return (defaults to 50)
+ * @returns Array of complaint objects
  */
 export async function getAllComplaints(limitCount = 50): Promise<Complaint[]> {
   const db = getFirestoreDb();
@@ -58,14 +67,16 @@ export async function getAllComplaints(limitCount = 50): Promise<Complaint[]> {
     }
   }
 
-  // Memory store fallback
   const list = Array.from(memoryStore.complaints.values());
   list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   return list.slice(0, limitCount);
 }
 
 /**
- * Fetch single complaint by tracking ID
+ * Fetches a single complaint by tracking ID.
+ *
+ * @param id - Complaint tracking ID
+ * @returns Complaint record or null if not found
  */
 export async function getComplaintById(id: string): Promise<Complaint | null> {
   const db = getFirestoreDb();
@@ -84,7 +95,10 @@ export async function getComplaintById(id: string): Promise<Complaint | null> {
 }
 
 /**
- * Insert or update a complaint
+ * Inserts or updates a complaint record in Firestore or the fallback store.
+ *
+ * @param complaint - Complaint object to persist
+ * @returns Saved complaint object
  */
 export async function saveComplaint(complaint: Complaint): Promise<Complaint> {
   const db = getFirestoreDb();
@@ -101,7 +115,12 @@ export async function saveComplaint(complaint: Complaint): Promise<Complaint> {
 }
 
 /**
- * Update partial fields on a complaint
+ * Updates partial fields on a complaint and appends an audit log entry.
+ *
+ * @param id - Tracking ID of complaint
+ * @param updates - Partial fields to update
+ * @param actor - Actor performing the update
+ * @returns Updated complaint record or null
  */
 export async function updateComplaintFields(
   id: string,
@@ -117,7 +136,6 @@ export async function updateComplaintFields(
     updatedAt: new Date().toISOString(),
   };
 
-  // Add history record if status changed
   if (updates.status && updates.status !== existing.status) {
     const historyEntry = {
       timestamp: new Date().toISOString(),
@@ -132,7 +150,6 @@ export async function updateComplaintFields(
 
   await saveComplaint(updated);
 
-  // Save audit log
   await recordAuditLog({
     id: `AUDIT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     complaintId: id,
@@ -152,7 +169,10 @@ export async function updateComplaintFields(
 }
 
 /**
- * Upvote a complaint atomically
+ * Atomically increments community upvotes on a complaint.
+ *
+ * @param id - Complaint tracking ID
+ * @returns Updated upvote total
  */
 export async function incrementComplaintUpvotes(id: string): Promise<number> {
   const complaint = await getComplaintById(id);
@@ -164,7 +184,9 @@ export async function incrementComplaintUpvotes(id: string): Promise<number> {
 }
 
 /**
- * Audit log recording
+ * Persists an administrative or system audit log.
+ *
+ * @param log - Audit log record
  */
 export async function recordAuditLog(log: AuditLog): Promise<void> {
   const db = getFirestoreDb();
@@ -179,7 +201,10 @@ export async function recordAuditLog(log: AuditLog): Promise<void> {
 }
 
 /**
- * Retrieve audit logs for a complaint
+ * Retrieves audit logs for a complaint in chronological reverse order.
+ *
+ * @param complaintId - Complaint tracking ID
+ * @returns Array of audit logs
  */
 export async function getAuditLogsForComplaint(complaintId: string): Promise<AuditLog[]> {
   const db = getFirestoreDb();
@@ -202,7 +227,7 @@ export async function getAuditLogsForComplaint(complaintId: string): Promise<Aud
 }
 
 /**
- * Incidents
+ * Retrieves all grouped municipal incident records.
  */
 export async function getAllIncidents(): Promise<Incident[]> {
   const db = getFirestoreDb();
@@ -218,6 +243,12 @@ export async function getAllIncidents(): Promise<Incident[]> {
   return Array.from(memoryStore.incidents.values());
 }
 
+/**
+ * Saves a grouped incident record.
+ *
+ * @param incident - Incident object
+ * @returns Saved incident object
+ */
 export async function saveIncident(incident: Incident): Promise<Incident> {
   const db = getFirestoreDb();
   if (db) {
@@ -232,7 +263,9 @@ export async function saveIncident(incident: Incident): Promise<Incident> {
 }
 
 /**
- * Escalation records
+ * Records an SLA escalation event.
+ *
+ * @param record - Escalation record object
  */
 export async function recordEscalation(record: EscalationRecord): Promise<void> {
   const db = getFirestoreDb();
@@ -246,6 +279,9 @@ export async function recordEscalation(record: EscalationRecord): Promise<void> 
   memoryStore.escalations.push(record);
 }
 
+/**
+ * Retrieves all SLA escalation records.
+ */
 export async function getAllEscalations(): Promise<EscalationRecord[]> {
   const db = getFirestoreDb();
   if (db) {
@@ -262,7 +298,13 @@ export async function getAllEscalations(): Promise<EscalationRecord[]> {
 }
 
 /**
- * Link duplicate complaints to a shared incident record
+ * Links duplicate complaints to a shared parent incident record.
+ * Parallelizes duplicate updates with Promise.all for high performance.
+ *
+ * @param primaryId - Primary complaint tracking ID
+ * @param duplicateIds - List of duplicate complaint tracking IDs
+ * @param notes - Grouping description notes
+ * @returns Generated Incident record
  */
 export async function linkComplaintsToIncident(
   primaryId: string,
@@ -277,21 +319,23 @@ export async function linkComplaintsToIncident(
 
   const allRelated = Array.from(new Set([primaryId, ...duplicateIds]));
 
-  // Update primary
-  await updateComplaintFields(primaryId, {
+  // Update primary complaint
+  const primaryPromise = updateComplaintFields(primaryId, {
     incidentId,
     duplicateCount: (primary.duplicateCount || 0) + duplicateIds.length,
     adminNotes: `${primary.adminNotes ? primary.adminNotes + "\n" : ""}[Incident Grouped: ${incidentId}] ${notes}`,
   });
 
-  // Update all duplicates
-  for (const dupId of duplicateIds) {
-    await updateComplaintFields(dupId, {
+  // Update all duplicates concurrently
+  const duplicatePromises = duplicateIds.map((dupId) =>
+    updateComplaintFields(dupId, {
       incidentId,
       duplicateOf: primaryId,
       adminNotes: `Associated as duplicate report under primary ${primaryId} (Incident ${incidentId})`,
-    });
-  }
+    })
+  );
+
+  await Promise.all([primaryPromise, ...duplicatePromises]);
 
   const incidentRecord: Incident = {
     incidentId,
@@ -317,4 +361,3 @@ export async function linkComplaintsToIncident(
   await saveIncident(incidentRecord);
   return incidentRecord;
 }
-

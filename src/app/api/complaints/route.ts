@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { CreateComplaintSchema } from "@/lib/validation";
 import { getAllComplaints, saveComplaint } from "@/lib/firestore";
 import { analyzeComplaintWithAI } from "@/lib/gemini";
@@ -7,7 +7,12 @@ import { calculateSLADeadline } from "@/lib/sla-engine";
 import { uploadImageToStorage } from "@/lib/storage";
 import { generateTrackingId } from "@/lib/utils";
 import { Complaint } from "@/lib/types";
+import { jsonSuccess, jsonError, CACHE_HEADERS, formatZodErrors } from "@/lib/api-utils";
+import { DEFAULT_QUERY_LIMIT } from "@/lib/constants";
 
+/**
+ * GET /api/complaints - Returns filtered civic complaints with caching headers.
+ */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -15,9 +20,9 @@ export async function GET(request: NextRequest) {
     const priority = searchParams.get("priority");
     const status = searchParams.get("status");
     const search = searchParams.get("search");
-    const limit = parseInt(searchParams.get("limit") || "50", 10);
+    const limit = parseInt(searchParams.get("limit") || `${DEFAULT_QUERY_LIMIT}`, 10);
 
-    let complaints = await getAllComplaints(Math.min(limit, 50));
+    let complaints = await getAllComplaints(Math.min(limit, 100));
 
     if (category && category !== "All") {
       complaints = complaints.filter((c) => c.category === category);
@@ -39,34 +44,30 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      count: complaints.length,
-      complaints,
-    });
+    return jsonSuccess(
+      {
+        count: complaints.length,
+        complaints,
+      },
+      200,
+      CACHE_HEADERS
+    );
   } catch (error) {
     console.error("Error fetching complaints:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to retrieve complaints" },
-      { status: 500 }
-    );
+    return jsonError("Failed to retrieve complaints", 500);
   }
 }
 
+/**
+ * POST /api/complaints - Ingests a new complaint, applies AI triage & duplicate checks.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const validated = CreateComplaintSchema.safeParse(body);
 
     if (!validated.success) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Validation failed",
-          details: validated.error.flatten(),
-        },
-        { status: 400 }
-      );
+      return jsonError("Validation failed", 400, formatZodErrors(validated.error));
     }
 
     const {
@@ -177,8 +178,7 @@ export async function POST(request: NextRequest) {
 
     await saveComplaint(newComplaint);
 
-    return NextResponse.json({
-      success: true,
+    return jsonSuccess({
       complaint: newComplaint,
       triageReceipt: {
         trackingId: newComplaint.id,
@@ -200,9 +200,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Failed to create complaint:", error);
-    return NextResponse.json(
-      { success: false, error: "Internal server error occurred while lodging complaint." },
-      { status: 500 }
-    );
+    return jsonError("Internal server error occurred while lodging complaint.", 500);
   }
 }

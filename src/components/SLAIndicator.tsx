@@ -1,3 +1,4 @@
+import React from "react";
 import { PriorityLevel, ComplaintStatus } from "@/lib/types";
 import { getSLAStatus } from "@/lib/sla-engine";
 import { formatTimeRemaining } from "@/lib/utils";
@@ -12,7 +13,7 @@ interface SLAIndicatorProps {
   showProgress?: boolean;
 }
 
-export function SLAIndicator({
+function SLAIndicatorComponent({
   priority,
   createdAt,
   slaDeadline,
@@ -49,28 +50,28 @@ export function SLAIndicator({
         )}
 
         <span
-          className={`font-medium ${
+          className={`font-semibold ${
             isOverdue
-              ? "text-red-700 font-semibold"
+              ? "text-red-700"
               : isApproaching
-              ? "text-amber-700 font-semibold"
+              ? "text-amber-700 font-bold"
               : "text-[#57534E]"
           }`}
         >
-          {isOverdue
-            ? `SLA Breach (${formatTimeRemaining(sla.remainingMs)})`
-            : `${formatTimeRemaining(sla.remainingMs)}`}
+          {formatTimeRemaining(sla.remainingHours)}
         </span>
-        <span className="text-stone-400">•</span>
-        <span className="text-[11px] text-[#57534E]">
-          Target: {sla.targetHours}h
-        </span>
+
+        {isOverdue && (
+          <span className="px-1.5 py-0.2 rounded text-[10px] uppercase font-bold bg-red-100 text-red-800 tracking-wide">
+            Overdue
+          </span>
+        )}
       </div>
 
       {showProgress && (
         <div className="w-full bg-[#E6E1D6] rounded-full h-1.5 overflow-hidden">
           <div
-            className={`h-full transition-all rounded-full ${
+            className={`h-full rounded-full transition-all duration-300 ${
               isOverdue
                 ? "bg-red-600"
                 : isApproaching
@@ -84,3 +85,5 @@ export function SLAIndicator({
     </div>
   );
 }
+
+export const SLAIndicator = React.memo(SLAIndicatorComponent);

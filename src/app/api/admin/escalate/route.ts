@@ -1,13 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { isCurrentAdminAuthenticated, verifyAdminSecret } from "@/lib/auth";
 import { getAllComplaints, updateComplaintFields, recordEscalation } from "@/lib/firestore";
 import { getSLAStatus } from "@/lib/sla-engine";
 import { EscalationRecord } from "@/lib/types";
 import { EscalateRequestSchema } from "@/lib/validation";
+import { jsonSuccess, jsonError } from "@/lib/api-utils";
 
+/**
+ * POST /api/admin/escalate - SLA auto-escalation handler.
+ * Parallelizes async escalation persistence using Promise.all.
+ */
 export async function POST(request: NextRequest) {
   try {
-    // Check authentication via session cookie OR via Authorization bearer token (for Cloud Scheduler)
     const isSessionAuth = await isCurrentAdminAuthenticated();
     let isAuthorized = isSessionAuth;
 
@@ -20,35 +24,27 @@ export async function POST(request: NextRequest) {
     }
 
     if (!isAuthorized) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized. Municipal admin credentials required." },
-        { status: 401 }
-      );
+      return jsonError("Unauthorized. Municipal admin credentials required.", 401);
     }
 
     const body = await request.json().catch(() => ({}));
     const validated = EscalateRequestSchema.safeParse(body);
-    const { complaintId, reason, autoScanAllOverdue } = validated.success
+    const { complaintId, reason } = validated.success
       ? validated.data
-      : { complaintId: undefined, reason: undefined, autoScanAllOverdue: true };
+      : { complaintId: undefined, reason: undefined };
 
     const complaints = await getAllComplaints(100);
-    const escalatedList: EscalationRecord[] = [];
 
     // If a specific complaintId is specified, escalate just that one
     if (complaintId) {
       const target = complaints.find((c) => c.id === complaintId);
       if (!target) {
-        return NextResponse.json(
-          { success: false, error: `Complaint ${complaintId} not found` },
-          { status: 404 }
-        );
+        return jsonError(`Complaint ${complaintId} not found`, 404);
       }
 
       const currentLevel = target.escalationLevel || 0;
       if (currentLevel >= 3) {
-        return NextResponse.json({
-          success: true,
+        return jsonSuccess({
           message: `Complaint ${complaintId} is already at maximum escalation level (Level 3: Senior Authority).`,
           complaint: target,
         });
@@ -69,71 +65,74 @@ export async function POST(request: NextRequest) {
         timestamp: new Date().toISOString(),
       };
 
-      await recordEscalation(record);
-      const updated = await updateComplaintFields(
-        target.id,
-        {
-          escalationLevel: nextLevel,
-          adminNotes: `${target.adminNotes ? target.adminNotes + "\n" : ""}[Escalated to Level ${nextLevel}] ${escalationReason}`,
-        },
-        "Automated SLA Escalation Engine"
-      );
+      await Promise.all([
+        recordEscalation(record),
+        updateComplaintFields(
+          target.id,
+          {
+            escalationLevel: nextLevel,
+            adminNotes: `${target.adminNotes ? target.adminNotes + "\n" : ""}[Escalated to Level ${nextLevel}] ${escalationReason}`,
+          },
+          "Automated SLA Escalation Engine"
+        ),
+      ]);
 
-      return NextResponse.json({
-        success: true,
+      return jsonSuccess({
         message: `Successfully escalated complaint ${complaintId} to Level ${nextLevel}`,
         escalation: record,
-        complaint: updated,
       });
     }
 
-    // Otherwise, scan all overdue open complaints
-    for (const comp of complaints) {
-      if (comp.status === "Resolved") continue;
-
+    // Otherwise, find all overdue open complaints and escalate in parallel
+    const overdueCandidates = complaints.filter((comp) => {
+      if (comp.status === "Resolved") return false;
       const sla = getSLAStatus(comp.priority, comp.createdAt, comp.slaDeadline, comp.status);
       const currentLevel = comp.escalationLevel || 0;
+      return sla.isOverdue && currentLevel < 3;
+    });
 
-      if (sla.isOverdue && currentLevel < 3) {
-        const nextLevel = currentLevel + 1;
-        const autoReason = `SLA target breached by ${Math.abs(sla.remainingHours)} hours. Auto-escalated from Level ${currentLevel} to Level ${nextLevel}.`;
+    const escalations: EscalationRecord[] = overdueCandidates.map((comp) => {
+      const currentLevel = comp.escalationLevel || 0;
+      const nextLevel = currentLevel + 1;
+      const sla = getSLAStatus(comp.priority, comp.createdAt, comp.slaDeadline, comp.status);
+      const autoReason = `SLA target breached by ${Math.abs(sla.remainingHours)} hours. Auto-escalated from Level ${currentLevel} to Level ${nextLevel}.`;
 
-        const record: EscalationRecord = {
-          id: `ESC-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
-          complaintId: comp.id,
-          previousLevel: currentLevel,
-          newLevel: nextLevel,
-          reason: autoReason,
-          triggeredBy: "SLA Cloud Scheduler",
-          timestamp: new Date().toISOString(),
-        };
+      return {
+        id: `ESC-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+        complaintId: comp.id,
+        previousLevel: currentLevel,
+        newLevel: nextLevel,
+        reason: autoReason,
+        triggeredBy: "SLA Cloud Scheduler",
+        timestamp: new Date().toISOString(),
+      };
+    });
 
-        await recordEscalation(record);
-        await updateComplaintFields(
-          comp.id,
-          {
-            escalationLevel: nextLevel,
-            adminNotes: `${comp.adminNotes ? comp.adminNotes + "\n" : ""}[SLA Auto-Escalation Level ${nextLevel}] ${autoReason}`,
-          },
-          "SLA Cloud Scheduler"
-        );
+    // Execute database updates concurrently
+    await Promise.all(
+      escalations.map((record) =>
+        Promise.all([
+          recordEscalation(record),
+          updateComplaintFields(
+            record.complaintId,
+            {
+              escalationLevel: record.newLevel,
+              adminNotes: `[SLA Auto-Escalation Level ${record.newLevel}] ${record.reason}`,
+            },
+            "SLA Cloud Scheduler"
+          ),
+        ])
+      )
+    );
 
-        escalatedList.push(record);
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
+    return jsonSuccess({
       scannedCount: complaints.length,
-      escalatedCount: escalatedList.length,
-      escalations: escalatedList,
+      escalatedCount: escalations.length,
+      escalations,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("Escalation engine execution error:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to execute SLA escalation routine." },
-      { status: 500 }
-    );
+    return jsonError("Failed to execute SLA escalation routine.", 500);
   }
 }

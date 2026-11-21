@@ -1,3 +1,4 @@
+import React from "react";
 import { ComplaintStatus } from "@/lib/types";
 import { Clock, Loader2, CheckCircle2, AlertOctagon, RotateCcw } from "lucide-react";
 
@@ -7,7 +8,11 @@ interface StatusBadgeProps {
   className?: string;
 }
 
-export function StatusBadge({ status, showIcon = true, className = "" }: StatusBadgeProps) {
+function StatusBadgeComponent({
+  status,
+  showIcon = true,
+  className = "",
+}: StatusBadgeProps) {
   switch (status) {
     case "Reported":
       return (
@@ -56,9 +61,13 @@ export function StatusBadge({ status, showIcon = true, className = "" }: StatusB
       );
     default:
       return (
-        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-stone-100 text-stone-700 ${className}`}>
+        <span
+          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-stone-100 text-stone-700 ${className}`}
+        >
           {status}
         </span>
       );
   }
 }
+
+export const StatusBadge = React.memo(StatusBadgeComponent);

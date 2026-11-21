@@ -1,3 +1,4 @@
+import React from "react";
 import { PriorityLevel } from "@/lib/types";
 import { AlertCircle, AlertTriangle, ShieldCheck, Flame } from "lucide-react";
 
@@ -7,7 +8,11 @@ interface PriorityBadgeProps {
   className?: string;
 }
 
-export function PriorityBadge({ priority, showIcon = true, className = "" }: PriorityBadgeProps) {
+function PriorityBadgeComponent({
+  priority,
+  showIcon = true,
+  className = "",
+}: PriorityBadgeProps) {
   switch (priority) {
     case "Critical":
       return (
@@ -48,3 +53,5 @@ export function PriorityBadge({ priority, showIcon = true, className = "" }: Pri
       );
   }
 }
+
+export const PriorityBadge = React.memo(PriorityBadgeComponent);

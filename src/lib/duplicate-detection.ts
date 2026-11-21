@@ -1,7 +1,16 @@
 import { Complaint, GeoCoordinates } from "./types";
+import {
+  DUPLICATE_DISTANCE_CLOSE_METERS,
+  DUPLICATE_DISTANCE_NEAR_METERS,
+  DUPLICATE_DISTANCE_NEIGHBORHOOD_METERS,
+} from "./constants";
 
 /**
- * Calculates great-circle distance between two coordinates in meters (Haversine formula).
+ * Calculates great-circle distance between two geographic coordinates in meters (Haversine formula).
+ *
+ * @param coord1 - First coordinate pair
+ * @param coord2 - Second coordinate pair
+ * @returns Distance in meters, or null if coordinates are missing
  */
 export function calculateDistanceMeters(
   coord1?: GeoCoordinates,
@@ -23,29 +32,32 @@ export function calculateDistanceMeters(
 }
 
 /**
- * Calculates Jaccard similarity between two token sets.
+ * Tokenizes text into a set of normalized alphanumeric words of length > 2.
  */
-function tokenSimilarity(text1: string, text2: string): number {
-  const tokenize = (s: string) =>
-    new Set(
-      s
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, "")
-        .split(/\s+/)
-        .filter((w) => w.length > 2)
-    );
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+  );
+}
 
-  const set1 = tokenize(text1);
-  const set2 = tokenize(text2);
-
-  if (set1.size === 0 || set2.size === 0) return 0;
+/**
+ * Calculates Jaccard similarity between a pre-tokenized set and a target string.
+ */
+function tokenSimilarity(set1: Set<string>, targetText: string): number {
+  if (set1.size === 0) return 0;
+  const set2 = tokenize(targetText);
+  if (set2.size === 0) return 0;
 
   let intersection = 0;
   for (const token of set1) {
     if (set2.has(token)) intersection++;
   }
 
-  const union = new Set([...set1, ...set2]).size;
+  const union = set1.size + set2.size - intersection;
   return union === 0 ? 0 : intersection / union;
 }
 
@@ -59,6 +71,11 @@ export interface DuplicateMatchResult {
 /**
  * Compares an incoming complaint against an existing pool of active complaints
  * to detect if it relates to an existing open civic incident.
+ * Pre-tokenizes incoming text once to avoid O(N^2) string operations.
+ *
+ * @param incoming - Complaint payload being submitted
+ * @param existingComplaints - Array of existing complaint records
+ * @returns Duplicate match result with confidence score and reasons
  */
 export function detectPotentialDuplicate(
   incoming: {
@@ -74,8 +91,15 @@ export function detectPotentialDuplicate(
   let bestMatch: Complaint | undefined = undefined;
   let bestReasons: string[] = [];
 
-  for (const candidate of existingComplaints) {
-    // Only check unresolved complaints
+  // Pre-tokenize incoming strings once outside the loop
+  const incomingTitleTokens = tokenize(incoming.title);
+  const incomingDescTokens = tokenize(incoming.description);
+  const incomingLocTokens = tokenize(incoming.location);
+
+  for (let i = 0; i < existingComplaints.length; i++) {
+    const candidate = existingComplaints[i];
+
+    // Only compare against unresolved complaints
     if (candidate.status === "Resolved") continue;
 
     let score = 0;
@@ -92,20 +116,20 @@ export function detectPotentialDuplicate(
     if (incoming.coordinates && candidate.coordinates) {
       const distance = calculateDistanceMeters(incoming.coordinates, candidate.coordinates);
       if (distance !== null) {
-        if (distance <= 50) {
+        if (distance <= DUPLICATE_DISTANCE_CLOSE_METERS) {
           score += 0.45;
           reasons.push(`Extremely close geographic proximity (~${Math.round(distance)}m)`);
-        } else if (distance <= 200) {
+        } else if (distance <= DUPLICATE_DISTANCE_NEAR_METERS) {
           score += 0.35;
           reasons.push(`Nearby location (~${Math.round(distance)}m)`);
-        } else if (distance <= 500) {
+        } else if (distance <= DUPLICATE_DISTANCE_NEIGHBORHOOD_METERS) {
           score += 0.15;
           reasons.push(`In same immediate neighborhood (~${Math.round(distance)}m)`);
         }
       }
     } else {
-      // Fallback location string comparison
-      const locSim = tokenSimilarity(incoming.location, candidate.location);
+      // Fallback location string comparison using pre-tokenized incoming location
+      const locSim = tokenSimilarity(incomingLocTokens, candidate.location);
       if (locSim > 0.4) {
         score += 0.25;
         reasons.push("Overlapping location landmarks");
@@ -113,9 +137,9 @@ export function detectPotentialDuplicate(
     }
 
     // 3. Text semantic/token similarity
-    const titleSim = tokenSimilarity(incoming.title, candidate.title);
-    const descSim = tokenSimilarity(incoming.description, candidate.description);
-    const textSim = (titleSim * 0.6 + descSim * 0.4);
+    const titleSim = tokenSimilarity(incomingTitleTokens, candidate.title);
+    const descSim = tokenSimilarity(incomingDescTokens, candidate.description);
+    const textSim = titleSim * 0.6 + descSim * 0.4;
 
     if (textSim > 0.4) {
       score += 0.25;

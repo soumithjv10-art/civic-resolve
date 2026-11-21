@@ -1,5 +1,9 @@
 import { Storage } from "@google-cloud/storage";
+import { MAX_FILE_SIZE_BYTES, ALLOWED_IMAGE_MIMES } from "./constants";
 
+/**
+ * Singleton instance of Google Cloud Storage client.
+ */
 let storageClient: Storage | null = null;
 
 function getStorageClient(): Storage | null {
@@ -24,24 +28,30 @@ export interface UploadResult {
 }
 
 /**
- * Validates and uploads a file buffer to Google Cloud Storage with fallback
+ * Validates and uploads a file buffer to Google Cloud Storage with resilient fallback.
+ *
+ * @param buffer - Binary buffer of the uploaded image
+ * @param originalFilename - Original filename uploaded by user
+ * @param mimeType - MIME type string (must be JPEG, PNG, or WebP)
+ * @returns Upload result containing storage URL and metadata
  */
 export async function uploadImageToStorage(
   buffer: Buffer,
   originalFilename: string,
   mimeType: string
 ): Promise<UploadResult> {
-  const allowedMimes = ["image/jpeg", "image/png", "image/webp"];
-  if (!allowedMimes.includes(mimeType)) {
+  const allowed = (ALLOWED_IMAGE_MIMES as readonly string[]).includes(mimeType);
+  if (!allowed) {
     throw new Error(`Invalid file type ${mimeType}. Only JPEG, PNG, and WebP are accepted.`);
   }
 
-  const maxSizeBytes = 5 * 1024 * 1024; // 5 MB
-  if (buffer.length > maxSizeBytes) {
-    throw new Error(`File size ${(buffer.length / (1024 * 1024)).toFixed(2)}MB exceeds maximum 5MB limit.`);
+  if (buffer.length > MAX_FILE_SIZE_BYTES) {
+    throw new Error(
+      `File size ${(buffer.length / (1024 * 1024)).toFixed(2)}MB exceeds maximum 5MB limit.`
+    );
   }
 
-  // Sanitize filename
+  // Sanitize filename to prevent directory traversal or invalid character issues
   const sanitizedName = originalFilename
     .replace(/[^a-zA-Z0-9.-]/g, "_")
     .toLowerCase();
@@ -61,7 +71,6 @@ export async function uploadImageToStorage(
         resumable: false,
       });
 
-      // Construct public or storage URL
       const publicUrl = `https://storage.googleapis.com/${bucketName}/${uniqueFilename}`;
       return {
         url: publicUrl,
@@ -74,7 +83,7 @@ export async function uploadImageToStorage(
     }
   }
 
-  // Graceful fallback: Base64 data URL for local environment / testing
+  // Graceful fallback: Base64 data URL for local development / testing
   const base64Data = buffer.toString("base64");
   const dataUrl = `data:${mimeType};base64,${base64Data}`;
 

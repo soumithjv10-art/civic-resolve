@@ -43,7 +43,6 @@ export interface ResolutionVerificationOutput {
   isFallback: boolean;
 }
 
-
 const ResolutionVerificationSchema = z.object({
   aiVerdict: z.enum([
     "Likely Resolved",
@@ -57,17 +56,28 @@ const ResolutionVerificationSchema = z.object({
 });
 
 /**
- * Returns an instance of GoogleGenAI if a valid API key is present at runtime.
+ * Module-level cached instance of the GoogleGenAI client (Singleton pattern).
+ */
+let cachedGeminiClient: GoogleGenAI | null = null;
+let cachedApiKey: string | null = null;
+
+/**
+ * Returns a singleton instance of GoogleGenAI if a valid API key is present at runtime.
  */
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === "PASTE_YOUR_GEMINI_API_KEY_HERE" || apiKey.trim() === "") {
     return null;
   }
+  if (cachedGeminiClient && cachedApiKey === apiKey) {
+    return cachedGeminiClient;
+  }
   try {
-    return new GoogleGenAI({ apiKey });
+    cachedGeminiClient = new GoogleGenAI({ apiKey });
+    cachedApiKey = apiKey;
+    return cachedGeminiClient;
   } catch (err) {
-    console.warn("Failed to instantiate GoogleGenAI client:", err);
+    console.warn("Failed to instantiate GoogleGenAI client singleton:", err);
     return null;
   }
 }
@@ -75,6 +85,9 @@ function getGeminiClient(): GoogleGenAI | null {
 /**
  * Analyzes a civic grievance submission using Gemini 3.8 Flash,
  * falling back gracefully to deterministic keyword-based analysis if unavailable.
+ *
+ * @param input - Grievance details including title, description, location, and optional image
+ * @returns Structured AI triage output with category, priority, department, and summary
  */
 export async function analyzeComplaintWithAI(input: {
   title: string;
@@ -205,6 +218,9 @@ Description: ${input.description}`;
 
 /**
  * Compares before and after photographs to verify if civic repairs are genuine.
+ *
+ * @param input - Repair details including before/after photo URLs and official notes
+ * @returns AI verification verdict, confidence, and human review recommendation
  */
 export async function verifyResolutionWithAI(input: {
   complaintTitle: string;
@@ -308,6 +324,10 @@ const VoiceStructureSchema = z.object({
 /**
  * Transcribes and structures speech recognition output in Tamil or English
  * using Gemini 3.8 Flash, with resilient deterministic fallback.
+ *
+ * @param transcript - Raw speech recognition text
+ * @param hintLanguage - Expected input language code (e.g. 'ta-IN' or 'en-IN')
+ * @returns Structured grievance draft ready for review
  */
 export async function transcribeAndStructureVoice(
   transcript: string,
@@ -320,7 +340,6 @@ export async function transcribeAndStructureVoice(
     hintLanguage.startsWith("ta") || /[\u0B80-\u0BFF]/.test(transcript);
 
   if (!ai) {
-    // Deterministic fallback for voice
     const fallback = classifyDeterministically(
       transcript,
       transcript,
@@ -429,4 +448,3 @@ Respond ONLY with valid JSON matching:
     };
   }
 }
-
